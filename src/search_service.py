@@ -4515,14 +4515,14 @@ class SearchService:
                 },
                 {
                     'name': 'risk_check',
-                    'query': f"{korean_name} 공시 리스크 소송 횡령 배임 유상증자",
+                    'query': f"{korean_name} 횡령 배임 불성실공시 유상증자 감사의견",
                     'desc': '风险排查',
                     'tavily_topic': 'news',
                     'strict_freshness': True,
                 },
                 {
                     'name': 'announcements',
-                    'query': f"{korean_name} {korean_code} 전자공시 DART 공시",
+                    'query': f"{korean_name} {korean_code} 공시",
                     'desc': '公司公告',
                     'tavily_topic': 'news',
                     'strict_freshness': True,

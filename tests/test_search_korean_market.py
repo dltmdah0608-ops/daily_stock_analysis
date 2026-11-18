@@ -121,7 +121,7 @@ def test_comprehensive_intel_uses_korean_dimension_queries() -> None:
         assert KR_KO_NAME in query
         for a_share_term in ("减持", "上交所", "深交所", "cninfo", "研报"):
             assert a_share_term not in query
-    assert any("전자공시" in query for query in queries)
+    assert any("공시" in query for query in queries)
     assert any("증권사 리포트" in query for query in queries)
 
 
