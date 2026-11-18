@@ -1724,6 +1724,19 @@ def main() -> int:
         logger.exception("加载配置失败: %s", exc)
         return 1
 
+    # GitHub Actions 定时触发（schedule）默认只分析 STOCK_LIST 中的自选股，跳过大盘复盘：
+    # 大盘复盘会额外抓取 A 股指数，网络受限时会长时间卡住并撞上 30 分钟作业超时
+    # （run 44289817166）。显式 --market-review 仍可单独复盘；需要「股票 + 大盘」时
+    # 从 Actions 手动触发并选择 full（.github/workflows/00-daily-analysis.yml）。
+    if (
+        os.getenv('GITHUB_ACTIONS', '').lower() == 'true'
+        and os.getenv('GITHUB_EVENT_NAME', '') == 'schedule'
+        and not getattr(args, 'market_review', False)
+        and not getattr(args, 'no_market_review', False)
+    ):
+        args.no_market_review = True
+        logger.info("GitHub Actions schedule 触发：跳过大盘复盘，仅分析自选股")
+
     # 配置日志（输出到控制台和文件）
     try:
         _setup_runtime_logging(config.log_dir, debug=args.debug)
