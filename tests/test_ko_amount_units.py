@@ -22,7 +22,6 @@ except ModuleNotFoundError:
     ensure_litellm_stub()
 
 from src.notification import NotificationService
-from src.report_language import get_report_labels
 
 
 def _financial_context(currency="KRW"):
