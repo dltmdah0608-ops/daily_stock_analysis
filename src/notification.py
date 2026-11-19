@@ -2178,13 +2178,33 @@ class NotificationService(
         "RMB": "元",
         "CNH": "元",
         "TWD": "新台币",  # 台股 (TWSE/TPEx) 以新台币计价，避免与 A 股「元」(人民币) 混淆
+        "KRW": "韩元",    # 韩股 (KRX) 以韩元计价，不能落回「元」(人民币)
     }
 
-    @classmethod
-    def _format_amount_cn(cls, value: Any, currency: Optional[str] = None) -> str:
-        """Format absolute amounts in 亿/万 + currency suffix; returns N/A on non-numeric.
+    # 韩文报告的金额单位：억/만 + 货币 (예: 421.82억 원).
+    _CURRENCY_SUFFIX_KO = {
+        "KRW": "원",
+        "USD": "달러",
+        "HKD": "홍콩달러",
+        "CNY": "위안",
+        "RMB": "위안",
+        "CNH": "위안",
+        "TWD": "신타이완달러",
+    }
+    _DEFAULT_CURRENCY_SUFFIX_KO = "원"
 
-        ``currency`` accepts ``USD``/``HKD``/``CNY``; unknown values fall back to 元.
+    @classmethod
+    def _format_amount_cn(
+        cls,
+        value: Any,
+        currency: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> str:
+        """Format absolute amounts in 亿/万 (Korean: 억/만) + currency suffix.
+
+        ``currency`` accepts ``USD``/``HKD``/``CNY``/``TWD``/``KRW``; unknown values fall
+        back to 元 for Chinese and to 원 for Korean. ``language="ko"`` switches the
+        magnitude units to 억/만 so a Korean report never shows a Chinese 「亿元」.
         """
         try:
             amount = float(value)
@@ -2192,6 +2212,8 @@ class NotificationService(
             return "N/A"
         if amount != amount:  # NaN
             return "N/A"
+        if normalize_report_language(language) == "ko":
+            return cls._format_amount_ko(amount, currency)
         sign = "-" if amount < 0 else ""
         abs_amount = abs(amount)
         suffix = cls._CURRENCY_SUFFIX.get((currency or "").upper(), "元")
@@ -2202,6 +2224,21 @@ class NotificationService(
             return f"{sign}{abs_amount / 1e4:.2f} 万{suffix}"
         return f"{sign}{abs_amount:.0f} {suffix}"
 
+    @classmethod
+    def _format_amount_ko(cls, amount: float, currency: Optional[str] = None) -> str:
+        """Format an amount with Korean magnitude units (억/만) and a Korean currency word."""
+        sign = "-" if amount < 0 else ""
+        abs_amount = abs(amount)
+        suffix = cls._CURRENCY_SUFFIX_KO.get(
+            (currency or "").upper(), cls._DEFAULT_CURRENCY_SUFFIX_KO
+        )
+        # Same round-up rule as the Chinese formatter: 99_999_999 reads 1.00억 원, not 9999.99만 원.
+        if abs_amount >= 1e8 or round(abs_amount / 1e4, 2) >= 1e4:
+            return f"{sign}{abs_amount / 1e8:.2f}억 {suffix}"
+        if abs_amount >= 1e4 or round(abs_amount) >= 1e4:
+            return f"{sign}{abs_amount / 1e4:.2f}만 {suffix}"
+        return f"{sign}{abs_amount:,.0f}{suffix}"
+
     @staticmethod
     def _format_percent(value: Any) -> str:
         try:
@@ -2210,13 +2247,23 @@ class NotificationService(
             return "N/A"
 
     @classmethod
-    def _format_per_share(cls, value: Any, currency: Optional[str] = None) -> str:
+    def _format_per_share(
+        cls,
+        value: Any,
+        currency: Optional[str] = None,
+        language: Optional[str] = None,
+    ) -> str:
         try:
             amount = float(value)
         except (TypeError, ValueError):
             return "N/A"
         if amount != amount:  # NaN
             return "N/A"
+        if normalize_report_language(language) == "ko":
+            suffix = cls._CURRENCY_SUFFIX_KO.get(
+                (currency or "").upper(), cls._DEFAULT_CURRENCY_SUFFIX_KO
+            )
+            return f"{amount:,.2f} {suffix}"
         suffix = cls._CURRENCY_SUFFIX.get((currency or "").upper(), "元")
         return f"{amount:.4f} {suffix}"
 
@@ -2302,8 +2349,8 @@ class NotificationService(
         report_language = self._get_report_language(result)
         labels = get_report_labels(report_language)
 
-        self._append_financial_summary(lines, blocks, labels)
-        self._append_shareholder_return(lines, blocks, labels)
+        self._append_financial_summary(lines, blocks, labels, report_language)
+        self._append_shareholder_return(lines, blocks, labels, report_language)
         self._append_institutional_flow(lines, blocks, labels)
         self._append_related_boards(lines, blocks, labels)
 
@@ -2312,15 +2359,18 @@ class NotificationService(
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         report = blocks.get("financial_report") or {}
         growth = blocks.get("growth") or {}
         currency = report.get("currency") if isinstance(report.get("currency"), str) else None
         cells = {
             "report_date": self._format_text(report.get("report_date")),
-            "revenue": self._format_amount_cn(report.get("revenue"), currency),
-            "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency),
-            "operating_cash_flow": self._format_amount_cn(report.get("operating_cash_flow"), currency),
+            "revenue": self._format_amount_cn(report.get("revenue"), currency, report_language),
+            "net_profit": self._format_amount_cn(report.get("net_profit_parent"), currency, report_language),
+            "operating_cash_flow": self._format_amount_cn(
+                report.get("operating_cash_flow"), currency, report_language
+            ),
             "roe": self._format_percent(report.get("roe") if report.get("roe") is not None else growth.get("roe")),
             "revenue_yoy": self._format_percent(growth.get("revenue_yoy")),
             "net_profit_yoy": self._format_percent(growth.get("net_profit_yoy")),
@@ -2353,6 +2403,7 @@ class NotificationService(
         lines: List[str],
         blocks: Dict[str, Any],
         labels: Dict[str, str],
+        report_language: Optional[str] = None,
     ) -> None:
         dividend = blocks.get("dividend") or {}
         report = blocks.get("financial_report") or {}
@@ -2369,7 +2420,9 @@ class NotificationService(
 
         ttm_event_count = dividend.get("ttm_event_count")
         cells = {
-            "ttm_cash": self._format_per_share(dividend.get("ttm_cash_dividend_per_share"), dividend_currency),
+            "ttm_cash": self._format_per_share(
+                dividend.get("ttm_cash_dividend_per_share"), dividend_currency, report_language
+            ),
             "ttm_count": str(ttm_event_count) if isinstance(ttm_event_count, int) else "N/A",
             "ttm_yield": self._format_percent(dividend.get("ttm_dividend_yield_pct")),
             "latest_ex": self._format_text(latest_event.get("ex_dividend_date") or latest_event.get("event_date")),
